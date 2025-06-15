@@ -1,0 +1,254 @@
+import gradio as gr
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import sys
+import tempfile
+import json
+from typing import Dict, List, Optional, Tuple, Union, Any
+
+# Add project root to path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Import project modules
+from src.agents.analysis_agent import AnalysisAgent
+from src.agents.visualization_agent import VisualizationAgent
+
+# Gradio theme customization
+theme = gr.themes.Soft(
+    primary_hue="indigo",
+    secondary_hue="blue",
+    neutral_hue="slate",
+    radius_size=gr.themes.sizes.radius_sm,
+    text_size=gr.themes.sizes.text_lg,
+)
+
+# Global state
+state = {
+    "df": None,
+    "model_comparison": {}
+}
+
+def load_data(file):
+    """Load data from uploaded file"""
+    try:
+        file_extension = os.path.splitext(file.name)[1].lower()
+        
+        if file_extension == '.csv':
+            df = pd.read_csv(file)
+        elif file_extension in ['.xlsx', '.xls']:
+            df = pd.read_excel(file)
+        elif file_extension == '.json':
+            df = pd.read_json(file)
+        else:
+            return None, f"Unsupported file format: {file_extension}"
+        
+        # Store dataframe in state
+        state["df"] = df
+        
+        # Return preview and info
+        preview = df.head(5).to_html(classes="table table-striped")
+        info = f"Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns"
+        
+        return preview, info
+    except Exception as e:
+        return None, f"Error loading file: {str(e)}"
+
+def process_query(query, model, output_type):
+    """Process user query with selected model and output type"""
+    if state["df"] is None:
+        return "Please upload a dataset first.", None, None
+    
+    try:
+        df = state["df"]
+        
+        # Record query start time
+        import time
+        start_time = time.time()
+        
+        # Initialize agents
+        analysis_agent = AnalysisAgent(llm_type=model)
+        visualization_agent = VisualizationAgent(llm_type=model)
+        
+        if output_type == "Analysis":
+            # Get analysis from agent
+            result = analysis_agent.analyze(df, query)
+            
+            # Record metrics for model comparison
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            if model not in state["model_comparison"]:
+                state["model_comparison"][model] = {"queries": 0, "total_time": 0}
+            
+            state["model_comparison"][model]["queries"] += 1
+            state["model_comparison"][model]["total_time"] += response_time
+            
+            return result, None, None
+        
+        elif output_type == "Visualization":
+            # Get visualization suggestion
+            viz_suggestion = analysis_agent.suggest_visualization(df, query)
+            
+            # Create visualization based on suggestion
+            viz_request = json.dumps(viz_suggestion) if isinstance(viz_suggestion, dict) else str(viz_suggestion)
+            fig, code = visualization_agent.create_visualization(df, viz_request)
+            
+            # Save visualization to temporary file
+            temp_dir = tempfile.gettempdir()
+            filepath = os.path.join(temp_dir, "visualization.png")
+            fig.savefig(filepath, dpi=300, bbox_inches='tight')
+            
+            # Record metrics for model comparison
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            if model not in state["model_comparison"]:
+                state["model_comparison"][model] = {"queries": 0, "total_time": 0}
+            
+            state["model_comparison"][model]["queries"] += 1
+            state["model_comparison"][model]["total_time"] += response_time
+            
+            return "Visualization generated successfully.", fig, filepath
+        
+        elif output_type == "Prediction":
+            # Get prediction from agent
+            result = analysis_agent.predict(df, query)
+            
+            # Record metrics for model comparison
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            if model not in state["model_comparison"]:
+                state["model_comparison"][model] = {"queries": 0, "total_time": 0}
+            
+            state["model_comparison"][model]["queries"] += 1
+            state["model_comparison"][model]["total_time"] += response_time
+            
+            return result, None, None
+        
+        else:
+            return "Invalid output type selected.", None, None
+    
+    except Exception as e:
+        return f"Error processing query: {str(e)}", None, None
+
+def get_model_comparison():
+    """Generate model comparison statistics"""
+    if not state["model_comparison"]:
+        return "No model comparison data available yet. Try running queries with different models first."
+    
+    # Calculate average response times
+    model_stats = {}
+    for model, stats in state["model_comparison"].items():
+        queries = stats["queries"]
+        if queries > 0:
+            avg_time = stats["total_time"] / queries
+            model_stats[model] = {
+                "queries": queries,
+                "avg_response_time": avg_time
+            }
+    
+    # Format the comparison as a table
+    comparison = "# Model Performance Comparison\n\n"
+    comparison += "| Model | Queries | Avg. Response Time (s) |\n"
+    comparison += "|-------|---------|------------------------|\n"
+    
+    for model, stats in model_stats.items():
+        comparison += f"| {model} | {stats['queries']} | {stats['avg_response_time']:.3f} |\n"
+    
+    return comparison
+
+# Create Gradio interface
+with gr.Blocks(theme=theme) as demo:
+    gr.Markdown("# 🔮 NEXUS: AI-Powered Business Intelligence")
+    gr.Markdown("""
+    Transform your business data into actionable insights through natural language queries.
+    NEXUS combines the power of multiple LLMs with advanced data analysis and visualization capabilities.
+    """)
+    
+    with gr.Tabs():
+        with gr.TabItem("Data Input"):
+            with gr.Row():
+                with gr.Column():
+                    file_input = gr.File(label="Upload your business data (CSV, Excel, or JSON)")
+                    upload_button = gr.Button("Upload and Process")
+                
+                with gr.Column():
+                    data_info = gr.Textbox(label="Dataset Information", lines=2)
+                    data_preview = gr.HTML(label="Data Preview")
+            
+            upload_button.click(
+                fn=load_data,
+                inputs=[file_input],
+                outputs=[data_preview, data_info]
+            )
+        
+        with gr.TabItem("Business Intelligence"):
+            with gr.Row():
+                with gr.Column():
+                    query_input = gr.Textbox(
+                        label="Ask a question about your data",
+                        placeholder="E.g., What were our highest sales months last year?",
+                        lines=3
+                    )
+                    
+                    with gr.Row():
+                        model_select = gr.Radio(
+                            ["openai", "gemini"],
+                            label="Select LLM Model",
+                            value="openai"
+                        )
+                        output_type = gr.Radio(
+                            ["Analysis", "Visualization", "Prediction"],
+                            label="Output Type",
+                            value="Analysis"
+                        )
+                    
+                    submit_button = gr.Button("Generate Insights", variant="primary")
+                
+                with gr.Column():
+                    text_output = gr.Markdown(label="Analysis Results")
+                    image_output = gr.Plot(label="Visualization")
+                    download_button = gr.Button("Download Visualization")
+                    file_output = gr.File(label="Download Visualization", visible=False)
+            
+            example_queries = gr.Examples(
+                examples=[
+                    ["What were our highest sales months last year?"],
+                    ["Which region saw the biggest revenue growth?"],
+                    ["Predict sales trends for the next quarter based on past data."],
+                    ["Show me a bar chart of monthly sales for this year."],
+                    ["Compare performance across different product categories."],
+                    ["What is our customer retention rate by segment?"],
+                    ["Analyze the correlation between marketing spend and revenue."]
+                ],
+                inputs=query_input
+            )
+            
+            submit_button.click(
+                fn=process_query,
+                inputs=[query_input, model_select, output_type],
+                outputs=[text_output, image_output, file_output]
+            )
+            
+            download_button.click(
+                fn=lambda x: x,
+                inputs=[file_output],
+                outputs=[file_output]
+            )
+        
+        with gr.TabItem("Model Comparison"):
+            comparison_button = gr.Button("Generate Model Comparison")
+            comparison_output = gr.Markdown(label="Model Comparison Results")
+            
+            comparison_button.click(
+                fn=get_model_comparison,
+                inputs=[],
+                outputs=[comparison_output]
+            )
+
+# Launch the app
+if __name__ == "__main__":
+    demo.launch()
