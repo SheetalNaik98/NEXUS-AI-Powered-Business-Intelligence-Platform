@@ -1,0 +1,63 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# Project specific
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+output/
+
+# API keys and sensitive information
+.env
+credentials.json
+*_key.json
+
+# Model files
+*.pkl
+*.h5
+*.joblib
+*.model
+
+# Logs
+logs/
+*.log
+
+# Mac OS
+.DS_Store
+
+# Windows
+Thumbs.db
